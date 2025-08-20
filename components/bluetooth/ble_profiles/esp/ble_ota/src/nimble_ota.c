@@ -125,6 +125,12 @@ crc16_ccitt(const unsigned char *buf, int len);
 static esp_err_t
 esp_ble_ota_recv_fw_handler(uint8_t *buf, uint32_t length);
 
+/* Optional registration from user code */
+static const struct ble_gatt_svc_def *s_extra_svcs;
+void esp_ble_ota_register_additional_services(const struct ble_gatt_svc_def *svcs) {
+    s_extra_svcs = svcs;
+}
+
 static void
 esp_ble_ota_write_chr(struct os_mbuf *om)
 {
@@ -905,6 +911,7 @@ int
 ble_ota_gatt_svr_init(void)
 {
     int rc;
+    const struct ble_gatt_svc_def *extra_svcs = s_extra_svcs;
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
@@ -914,9 +921,29 @@ ble_ota_gatt_svr_init(void)
         return rc;
     }
 
+    /* If the app provides extra services, count them before adding any svcs. */
+
+    if (extra_svcs) {
+        rc = ble_gatts_count_cfg(extra_svcs);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+    
+
     rc = ble_gatts_add_svcs(ota_gatt_db);
     if (rc != 0) {
         return rc;
+    }
+
+    if (extra_svcs) {
+        ESP_LOGI(TAG, "Adding extra services");
+        rc = ble_gatts_add_svcs(extra_svcs);
+        if (rc != 0) {
+            return rc;
+        }
+    } else {
+        ESP_LOGI(TAG, "No extra services to add");
     }
 
     return 0;
