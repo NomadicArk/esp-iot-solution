@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
 */
+#include <inttypes.h>
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -83,6 +84,10 @@ static uint32_t fw_buf_offset = 0;
 static uint32_t ota_total_len = 0;
 static uint32_t ota_block_size = BUF_LENGTH;
 
+static volatile uint16_t s_numcmp_conn = 0;
+static volatile uint32_t s_numcmp_code = 0;
+static volatile bool     s_numcmp_pending = false;
+
 esp_ble_ota_callback_funs_t ota_cb_fun_t = {
     .recv_fw_cb = NULL
 };
@@ -146,6 +151,17 @@ static int require_secure_link(uint16_t conn_handle) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
     }
     return 0; // ok
+}
+
+int ble_ota_pair_numcmp_accept(int accept) {
+    if (!s_numcmp_pending) return -1;
+    struct ble_sm_io p = {0};
+    p.action = BLE_SM_IOACT_NUMCMP;
+    p.numcmp_accept = accept ? 1 : 0;
+    int rc = ble_sm_inject_io(s_numcmp_conn, &p);
+    s_numcmp_pending = false;
+    s_numcmp_code = 0;
+    return rc;
 }
 
 /* Optional registration from user code */
@@ -930,13 +946,16 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
         return BLE_GAP_REPEAT_PAIRING_RETRY;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION:
-        ESP_LOGI(TAG, "PASSKEY_ACTION_EVENT started \n");
+        ESP_LOGI(TAG, "PASSKEY_ACTION_EVENT");
+
         if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
-            struct ble_sm_io pkey = {0};
-            pkey.action = BLE_SM_IOACT_NUMCMP;
-            pkey.numcmp_accept = 1; // auto-accept for now
-            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(TAG, "Numeric comparison auto-accepted, rc=%d", rc);
+            s_numcmp_conn = event->passkey.conn_handle;
+            s_numcmp_code = event->passkey.params.numcmp;
+            s_numcmp_pending = true;
+            ESP_LOGI(TAG, "PAIR: Compare code %" PRIu32 ". Use console - 'pair yes' or 'pair no'.", s_numcmp_code);
+        } else {
+            ESP_LOGW(TAG, "Unsupported pairing method requested. Dropping link.");
+            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         }
         return 0;
     }
