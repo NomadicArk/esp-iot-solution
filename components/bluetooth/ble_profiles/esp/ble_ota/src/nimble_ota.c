@@ -11,6 +11,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include "host/ble_sm.h"
 #include "console/console.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -124,6 +125,28 @@ static uint16_t
 crc16_ccitt(const unsigned char *buf, int len);
 static esp_err_t
 esp_ble_ota_recv_fw_handler(uint8_t *buf, uint32_t length);
+
+// Require: encrypted + authenticated (MITM) + bonded.
+static int require_secure_link(uint16_t conn_handle) {
+    struct ble_gap_conn_desc d;
+    if (ble_gap_conn_find(conn_handle, &d) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    if (!d.sec_state.encrypted) {
+        ESP_LOGW(TAG, "reject: not encrypted");
+        return BLE_ATT_ERR_INSUFFICIENT_ENC;      // 0x0F
+    }
+    if (!d.sec_state.authenticated) {
+        ESP_LOGW(TAG, "reject: not authenticated (no MITM)");
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
+    }
+    if (!d.sec_state.bonded) {
+        ESP_LOGW(TAG, "reject: not bonded");
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
+    }
+    return 0; // ok
+}
 
 /* Optional registration from user code */
 static const struct ble_gatt_svc_def *s_extra_svcs;
@@ -444,6 +467,13 @@ ble_ota_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
     esp_ble_ota_char_t ota_char;
 
     attribute_handle = attr_handle;
+
+    // Block reads/writes until the link is bonded + MITM + encrypted.
+    int sec = require_secure_link(conn_handle);
+    if (sec != 0) {
+        return sec; // causes ATT Error Response to the client
+    }
+
 
     switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -901,6 +931,13 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_PASSKEY_ACTION:
         ESP_LOGI(TAG, "PASSKEY_ACTION_EVENT started \n");
+        if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
+            struct ble_sm_io pkey = {0};
+            pkey.action = BLE_SM_IOACT_NUMCMP;
+            pkey.numcmp_accept = 1; // auto-accept for now
+            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
+            ESP_LOGI(TAG, "Numeric comparison auto-accepted, rc=%d", rc);
+        }
         return 0;
     }
 
@@ -1015,10 +1052,12 @@ esp_ble_ota_host_init(void)
     ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_YES_NO;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
-    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist   = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
 
     rc = ble_ota_gatt_svr_init();
     assert(rc == 0);
