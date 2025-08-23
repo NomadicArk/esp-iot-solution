@@ -952,7 +952,15 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
             s_numcmp_conn = event->passkey.conn_handle;
             s_numcmp_code = event->passkey.params.numcmp;
             s_numcmp_pending = true;
+#ifdef CONFIG_EXAMPLE_AUTO_NUMCMP_ACCEPT
+            struct ble_sm_io pkey = {0};
+            pkey.action = BLE_SM_IOACT_NUMCMP;
+            pkey.numcmp_accept = 1; // auto-accept for now
+            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
+            ESP_LOGI(TAG, "Numeric comparison auto-accepted, rc=%d", rc);
+#else
             ESP_LOGI(TAG, "PAIR: Compare code %" PRIu32 ". Use console - 'pair yes' or 'pair no'.", s_numcmp_code);
+#endif
         } else {
             ESP_LOGW(TAG, "Unsupported pairing method requested. Dropping link.");
             ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
