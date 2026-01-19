@@ -1,5 +1,17 @@
 # ChangeLog
 
+## v1.4.3 - 2025-9-26
+
+### Bug Fix:
+
+- Synchronize the version information for cmake_utilities
+
+## v1.4.2 - 2025-8-26
+
+### Bug Fix:
+
+- Remove the dependency of `I2C_BUS_BACKWARD_CONFIG` on the IDF version, and add CMake messages for I2C driver information.
+
 ## V1.4.1 - 2025-8-14
 
 ### Bug Fix:

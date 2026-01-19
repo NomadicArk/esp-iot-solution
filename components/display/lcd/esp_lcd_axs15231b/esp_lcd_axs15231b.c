@@ -80,7 +80,7 @@ esp_err_t esp_lcd_new_panel_axs15231b(const esp_lcd_panel_io_handle_t io, const 
         ESP_GOTO_ON_ERROR(gpio_config(&io_conf), err, TAG, "configure GPIO for RST line failed");
     }
 
-    switch (panel_dev_config->color_space) {
+    switch (panel_dev_config->rgb_ele_order) {
     case LCD_RGB_ELEMENT_ORDER_RGB:
         axs15231b->madctl_val = 0;
         break;
@@ -315,9 +315,9 @@ static esp_err_t panel_axs15231b_draw_bitmap(esp_lcd_panel_t *panel, int x_start
     // transfer frame buffer
     size_t len = (x_end - x_start) * (y_end - y_start) * axs15231b->fb_bits_per_pixel / 8;
     if (y_start == 0) {
-        tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len);//2C
+        ESP_RETURN_ON_ERROR(tx_color(axs15231b, io, LCD_CMD_RAMWR, color_data, len), TAG, "send color data failed");
     } else {
-        tx_color(axs15231b, io, LCD_CMD_RAMWRC, color_data, len);//3C
+        ESP_RETURN_ON_ERROR(tx_color(axs15231b, io, LCD_CMD_RAMWRC, color_data, len), TAG, "send color data failed");
     }
 
     return ESP_OK;

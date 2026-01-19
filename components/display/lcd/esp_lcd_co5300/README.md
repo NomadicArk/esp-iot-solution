@@ -60,11 +60,7 @@ Alternatively, you can create `idf_component.yml`. More is in [Espressif's docum
     // };
     const esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = EXAMPLE_PIN_NUM_LCD_RST,      // Set to -1 if not use
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)      // Implemented by LCD command `36h`
-        .color_space = ESP_LCD_COLOR_SPACE_RGB,
-#else
-        .rgb_endian = LCD_RGB_ENDIAN_RGB,
-#endif
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,     // Implemented by LCD command `36h`
         .bits_per_pixel = 16,                           // Implemented by LCD command `3Ah` (12/16/18)
         // .vendor_config = &vendor_config,            // Uncomment this line if use custom initialization commands
     };
@@ -108,9 +104,9 @@ Alternatively, you can create `idf_component.yml`. More is in [Espressif's docum
 //     ...
 // };
 
-    ESP_LOGI(TAG, "Install SH8601 panel driver");
+    ESP_LOGI(TAG, "Install CO5300 panel driver");
     esp_lcd_panel_handle_t panel_handle = NULL;
-    const sh8601_vendor_config_t vendor_config = {
+    const co5300_vendor_config_t vendor_config = {
         // .init_cmds = lcd_init_cmds,         // Uncomment these line if use custom initialization commands
         // .init_cmds_size = sizeof(lcd_init_cmds) / sizeof(co5300_lcd_init_cmd_t),
         .flags = {
@@ -123,7 +119,7 @@ Alternatively, you can create `idf_component.yml`. More is in [Espressif's docum
         .bits_per_pixel = 16,                                     // Implemented by LCD command `3Ah`
         .vendor_config = &vendor_config,
     };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_co5300(io_handle, &panel_config, &panel_handle));
 
     esp_lcd_panel_reset(panel_handle);
     esp_lcd_panel_init(panel_handle);
