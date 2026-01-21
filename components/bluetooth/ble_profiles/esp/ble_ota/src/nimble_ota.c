@@ -394,6 +394,9 @@ ble_ota_start_write_chr(struct os_mbuf *om)
     esp_ble_ota_char_t ota_char = find_ota_char_and_desr_by_handle(attribute_handle);
     if ((om->om_data[0] == 0x01) && (om->om_data[1] == 0x00)) {
         start_ota = true;
+        cur_sector = 0;
+        cur_packet = 0;
+        fw_buf_offset = 0;
 
         ota_total_len = (om->om_data[2]) + (om->om_data[3] * 256) +
                         (om->om_data[4] * 256 * 256) + (om->om_data[5] * 256 * 256 * 256);
@@ -1090,9 +1093,10 @@ esp_ble_ota_host_init(void)
     assert(rc == 0);
 
     /* Set the default device name. */
+if (ble_svc_gap_device_name() == NULL || strlen(ble_svc_gap_device_name()) == 0) {
     rc = ble_svc_gap_device_name_set("nimble-ble-ota");
     assert(rc == 0);
-
+}
     /* XXX Need to have template for store */
     ble_store_config_init();
 
