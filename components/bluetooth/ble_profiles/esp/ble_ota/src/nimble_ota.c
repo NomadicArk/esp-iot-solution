@@ -857,6 +857,10 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "disconnect; reason=%d ", event->disconnect.reason);
         esp_ble_ota_print_conn_desc(&event->disconnect.conn);
 
+        /* Clear fan service auth session */
+        extern void fan_gap_forward_disconnect(uint16_t conn_handle);
+        fan_gap_forward_disconnect(event->disconnect.conn.conn_handle);
+
         /* Connection terminated; resume advertising. */
 #if CONFIG_EXAMPLE_EXTENDED_ADV
         esp_ble_ota_ext_advertise();
