@@ -142,10 +142,10 @@ static int require_secure_link(uint16_t conn_handle) {
         ESP_LOGW(TAG, "reject: not encrypted");
         return BLE_ATT_ERR_INSUFFICIENT_ENC;      // 0x0F
     }
-    if (!d.sec_state.authenticated) {
-        ESP_LOGW(TAG, "reject: not authenticated (no MITM)");
-        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
-    }
+    // if (!d.sec_state.authenticated) {
+    //     ESP_LOGW(TAG, "reject: not authenticated (no MITM)");
+    //     return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
+    // }
     if (!d.sec_state.bonded) {
         ESP_LOGW(TAG, "reject: not bonded");
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
@@ -842,6 +842,10 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
             assert(rc == 0);
             esp_ble_ota_print_conn_desc(&desc);
             connection_handle = event->connect.conn_handle;
+            extern void fan_gap_forward_connect(uint16_t conn_handle,
+                                                bool bonded);
+            fan_gap_forward_connect(event->connect.conn_handle,
+                                    desc.sec_state.bonded);
         } else {
             /* Connection failed; resume advertising. */
 #if CONFIG_EXAMPLE_EXTENDED_ADV
@@ -936,6 +940,15 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
                  event->mtu.value);
         return 0;
 
+    case BLE_GAP_EVENT_PARING_COMPLETE:
+      /* Pairing has completed - forward to fan service to initiate fan pairing
+       */
+      ESP_LOGI(TAG, "pairing/identity event; type=%d", event->type);
+      extern void fan_gap_forward_pairing_complete(struct ble_gap_event *
+                                                   event);
+      fan_gap_forward_pairing_complete(event);
+      return 0;
+
     case BLE_GAP_EVENT_REPEAT_PAIRING:
         /* We already have a bond with the peer, but it is attempting to
          * establish a new secure link.  This app sacrifices security for
@@ -947,32 +960,19 @@ esp_ble_ota_gap_event(struct ble_gap_event *event, void *arg)
         assert(rc == 0);
         ble_store_util_delete_peer(&desc.peer_id_addr);
 
+        /* Clear fan confirmation for this peer so re-pairing requires fan
+         * button */
+        extern void fan_gap_forward_repeat_pairing(const ble_addr_t *peer_addr);
+        fan_gap_forward_repeat_pairing(&desc.peer_id_addr);
+
         /* Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should
          * continue with the pairing operation.
          */
         return BLE_GAP_REPEAT_PAIRING_RETRY;
 
     case BLE_GAP_EVENT_PASSKEY_ACTION:
-        ESP_LOGI(TAG, "PASSKEY_ACTION_EVENT");
-
-        if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
-            s_numcmp_conn = event->passkey.conn_handle;
-            s_numcmp_code = event->passkey.params.numcmp;
-            s_numcmp_pending = true;
-#ifdef CONFIG_EXAMPLE_AUTO_NUMCMP_ACCEPT
-            struct ble_sm_io pkey = {0};
-            pkey.action = BLE_SM_IOACT_NUMCMP;
-            pkey.numcmp_accept = 1; // auto-accept for now
-            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(TAG, "Numeric comparison auto-accepted, rc=%d", rc);
-#else
-            ESP_LOGI(TAG, "PAIR: Compare code %" PRIu32 ". Use console - 'pair yes' or 'pair no'.", s_numcmp_code);
-#endif
-        } else {
-            ESP_LOGW(TAG, "Unsupported pairing method requested. Dropping link.");
-            ble_gap_terminate(event->passkey.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
-        return 0;
+      ESP_LOGI(TAG, "PASSKEY_ACTION_EVENT");
+      return 0;
     }
 
     return 0;
@@ -1086,9 +1086,9 @@ esp_ble_ota_host_init(void)
     ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_YES_NO;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_mitm = 0;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_our_key_dist   = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
