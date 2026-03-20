@@ -19,6 +19,9 @@
 #include "host/ble_uuid.h"
 #include "ble_ota.h"
 #include "freertos/semphr.h"
+
+// External callback for OTA start notification
+extern void ota_service_on_start(uint32_t firmware_length);
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "esp_nimble_hci.h"
 
@@ -240,21 +243,25 @@ esp_ble_ota_write_chr(struct os_mbuf *om)
 write_ota_data:
 #ifdef CONFIG_PRE_ENC_OTA
     if (pargs.data_out_len > 0) {
+        if (fw_buf == NULL) return;
+        if (fw_buf_offset + pargs.data_out_len > ota_block_size) return;
+        
         memcpy(fw_buf + fw_buf_offset, pargs.data_out, pargs.data_out_len);
-
         free(pargs.data_out);
         free(pargs.data_in);
-
         fw_buf_offset += pargs.data_out_len;
     }
     ESP_LOGD(TAG, "DEBUG: Sector:%" PRIu32 ", total length:%" PRIu32 ", length:%d", cur_sector,
              fw_buf_offset, pargs.data_out_len);
 #else
-    os_mbuf_copydata(om, 3, os_mbuf_len(om) - 3, fw_buf + fw_buf_offset);
-    fw_buf_offset += os_mbuf_len(om) - 3;
-
-    ESP_LOGD(TAG, "DEBUG: Sector:%" PRIu32 ", total length:%" PRIu32 ", length:%d", cur_sector,
-             fw_buf_offset, os_mbuf_len(om) - 3);
+    if (fw_buf == NULL) return;
+    uint32_t data_len = os_mbuf_len(om) - 3;
+    if (fw_buf_offset + data_len > ota_block_size) return;
+    
+    os_mbuf_copydata(om, 3, data_len, fw_buf + fw_buf_offset);
+    fw_buf_offset += data_len;
+    ESP_LOGD(TAG, "DEBUG: Sector:%" PRIu32 ", total length:%" PRIu32 ", length:%u", cur_sector,
+             fw_buf_offset, data_len);
 #endif
     if (om->om_data[2] == 0xff) {
         cur_packet = 0;
@@ -268,14 +275,18 @@ write_ota_data:
     return;
 
 sector_end:
+    if (fw_buf == NULL) return;
+    
+    bool is_last_sector = (fw_buf_offset < ota_block_size);
+    
     if (fw_buf_offset < ota_block_size) {
         esp_ble_ota_recv_fw_handler(fw_buf, fw_buf_offset);
     } else {
-        esp_ble_ota_recv_fw_handler(fw_buf, 4096);
+        esp_ble_ota_recv_fw_handler(fw_buf, ota_block_size-2);
     }
 
+    memset(fw_buf, 0x00, ota_block_size);
     fw_buf_offset = 0;
-    memset(fw_buf, 0x0, ota_block_size);
 
     cmd_ack[0] = om->om_data[0];
     cmd_ack[1] = om->om_data[1];
@@ -285,9 +296,16 @@ sector_end:
     cmd_ack[18] = crc16 & 0xff;
     cmd_ack[19] = (crc16 & 0xff00) >> 8;
     counter = true;
+    
+    // Send ACK for first sector, then every 25 sectors, OR on last sector
+    bool should_ack = (cur_sector == 0) || (cur_sector % 25 == 0) || is_last_sector;
+    ESP_LOGI(TAG, "Sector %" PRIu32 ": should_ack=%d, is_last=%d", cur_sector, should_ack, is_last_sector);
+    
+    if (should_ack) {
 #ifndef CONFIG_OTA_WITH_PROTOCOMM
-    esp_ble_ota_notification_data(connection_handle, attribute_handle, cmd_ack, ota_char);
+        esp_ble_ota_notification_data(connection_handle, attribute_handle, cmd_ack, ota_char);
 #endif
+    }
 }
 
 static uint16_t crc16_ccitt(const unsigned char *buf, int len)
@@ -406,11 +424,20 @@ ble_ota_start_write_chr(struct os_mbuf *om)
 #endif
         ESP_LOGI(TAG, "recv ota start cmd, fw_length = %" PRIu32 "", ota_total_len);
 
-        fw_buf = (uint8_t *)malloc(ota_block_size * sizeof(uint8_t));
+        // Notify ota_service that OTA is starting
+        ota_service_on_start(ota_total_len);
+
+        // Clean up existing buffer
+        if (fw_buf != NULL) {
+            free(fw_buf);
+            fw_buf = NULL;
+        }
+
+        // Allocate fresh buffer
+        fw_buf = (uint8_t *)calloc(ota_block_size, sizeof(uint8_t));
         if (fw_buf == NULL) {
-            ESP_LOGE(TAG, "%s -  malloc fail", __func__);
-        } else {
-            memset(fw_buf, 0x0, ota_block_size);
+            ESP_LOGE(TAG, "%s - calloc fail", __func__);
+            start_ota = false;
         }
         cmd_ack[2] = 0x01;
         cmd_ack[3] = 0x00;
@@ -429,8 +456,17 @@ ble_ota_start_write_chr(struct os_mbuf *om)
         extern SemaphoreHandle_t notify_sem;
         xSemaphoreTake(notify_sem, portMAX_DELAY);
 
-        start_ota = false;
+        // Clean up buffer and reset state
+        if (fw_buf != NULL) {
+            free(fw_buf);
+            fw_buf = NULL;
+        }
+
         ota_total_len = 0;
+        cur_sector = 0;
+        cur_packet = 0;
+        fw_buf_offset = 0;
+        start_ota = false;
 
         xSemaphoreGive(notify_sem);
 
@@ -441,8 +477,6 @@ ble_ota_start_write_chr(struct os_mbuf *om)
         cmd_ack[18] = crc16 & 0xff;
         cmd_ack[19] = (crc16 & 0xff00) >> 8;
         esp_ble_ota_notification_data(connection_handle, attribute_handle, cmd_ack, ota_char);
-        free(fw_buf);
-        fw_buf = NULL;
     }
 }
 
