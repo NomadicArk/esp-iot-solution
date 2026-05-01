@@ -569,7 +569,7 @@ static const struct ble_gatt_svc_def ota_gatt_db[] = {
                 .uuid = BLE_UUID16_DECLARE(RECV_FW_UUID),
                 .access_cb = ble_ota_gatt_handler,
                 .val_handle = &receive_fw_val,
-                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             }, {
                 /* OTA Characteristic */
                 .uuid = BLE_UUID16_DECLARE(OTA_BAR_UUID),
@@ -581,13 +581,13 @@ static const struct ble_gatt_svc_def ota_gatt_db[] = {
                 .uuid = BLE_UUID16_DECLARE(COMMAND_UUID),
                 .access_cb = ble_ota_gatt_handler,
                 .val_handle = &command_val,
-                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             }, {
                 /* Customer characteristic */
                 .uuid = BLE_UUID16_DECLARE(CUSTOMER_UUID),
                 .access_cb = ble_ota_gatt_handler,
                 .val_handle = &custom_val,
-                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
             }, {
                 0, /* No more characteristics in this service */
             }
