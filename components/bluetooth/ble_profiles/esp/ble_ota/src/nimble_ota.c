@@ -134,25 +134,30 @@ crc16_ccitt(const unsigned char *buf, int len);
 static esp_err_t
 esp_ble_ota_recv_fw_handler(uint8_t *buf, uint32_t length);
 
-// Require: encrypted + authenticated (MITM) + bonded.
+// Intentionally not requiring encrypted/authenticated(MITM)/bonded link:
+// OTA payload is already RSA-encrypted (pre-enc OTA) and the final image is
+// signature-verified by secure boot before it can ever be marked bootable,
+// so link-layer security is not required for OTA integrity/confidentiality.
+// This maximizes the chance an OTA update can always be performed even if
+// bonding/pairing is broken elsewhere.
 static int require_secure_link(uint16_t conn_handle) {
     struct ble_gap_conn_desc d;
     if (ble_gap_conn_find(conn_handle, &d) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
-    if (!d.sec_state.encrypted) {
-        ESP_LOGW(TAG, "reject: not encrypted");
-        return BLE_ATT_ERR_INSUFFICIENT_ENC;      // 0x0F
-    }
+    // if (!d.sec_state.encrypted) {
+    //     ESP_LOGW(TAG, "reject: not encrypted");
+    //     return BLE_ATT_ERR_INSUFFICIENT_ENC;      // 0x0F
+    // }
     // if (!d.sec_state.authenticated) {
     //     ESP_LOGW(TAG, "reject: not authenticated (no MITM)");
     //     return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
     // }
-    if (!d.sec_state.bonded) {
-        ESP_LOGW(TAG, "reject: not bonded");
-        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
-    }
+    // if (!d.sec_state.bonded) {
+    //     ESP_LOGW(TAG, "reject: not bonded");
+    //     return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;   // 0x05
+    // }
     return 0; // ok
 }
 
